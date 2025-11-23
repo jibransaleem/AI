@@ -4,6 +4,7 @@ import pandas as pd
 import time
 import plotly.graph_objects as go
 import plotly.express as px
+import random
 from typing import List, Tuple, Optional, Dict
 import statistics
 st.markdown("""
@@ -2108,3 +2109,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
