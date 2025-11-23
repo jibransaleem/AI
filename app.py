@@ -742,201 +742,362 @@ def create_performance_chart(results: Dict) -> go.Figure:
 # ============================================================================
 
 def show_hill_climbing_page():
-    """Hill Climbing algorithm page with smooth animation."""
-    st.markdown('<div class="algorithm-title">⛰️ Hill Climbing with Random Restart</div>', unsafe_allow_html=True)
+    """Hill Climbing algorithm page with smooth animation, restructured layout, and dynamic custom state input boxes."""
     
-    col1, col2 = st.columns([1, 2])
+    # Heading using standard markdown (no custom CSS injection)
+    st.markdown('## ⛰️ Hill Climbing with Random Restart')
     
-    with col1:
-        st.markdown("### ⚙️ Configuration")
-        
-        with st.container():
-            board_size = st.slider("🎲 Board Size", 4, 12, 8, key="hc_size")
-            max_restarts = st.slider("🔄 Max Restarts", 10, 100, 50, key="hc_restarts")
-            max_iterations = st.slider("🔢 Max Iterations", 100, 1000, 500, key="hc_iters")
-            animation_speed = st.slider("⚡ Animation Speed", 0.05, 1.0, 0.2, 
-                                       help="Seconds between frames", key="hc_speed")
-        
-        st.markdown("---")
-        
-        st.markdown("""
-        **📚 Algorithm Overview:**
-        
-        Hill Climbing is a **local search** algorithm:
-        - 🎯 Starts from random state
-        - 📈 Moves to better neighbors
-        - 🔄 Uses random restarts to escape local optima
-        - ⚡ Fast but not guaranteed to find solution
-        """)
-        
-        st.markdown("---")
-        
-        if st.button("🚀 Run Hill Climbing", key="run_hc", use_container_width=True):
-            st.session_state["hc_running"] = True
-            # st.session_state.hc_running = True
-            st.rerun()
+    # --- 1. Top Configuration & Controls ---
+    st.markdown("### ⚙️ Configuration and Controls")
     
-    with col2:
-        if 'hc_running' in st.session_state and st.session_state.hc_running:
-            solver = HillClimbingSolver(board_size, max_restarts, max_iterations)
+    param_tab, init_state_tab = st.tabs(["Algorithm Parameters", "Initial State Setup"])
+    
+    with param_tab:
+        config_col1, config_col2 = st.columns(2)
+        with config_col1:
+            board_size = st.slider("🎲 Board Size (N)", 4, 12, 8, key="hc_size")
+            max_restarts = st.slider("🔄 Max Restarts", 10, 100, 50, key="hc_restarts", 
+                                     help="Maximum times to restart from a new random state if stuck.")
+            
+        with config_col2:
+            max_iterations = st.slider("🔢 Max Iterations per Run", 100, 1000, 500, key="hc_iters")
+            animation_speed = st.slider("⚡ Animation Speed (s)", 0.05, 1.0, 0.2, 
+                                        help="Seconds between visualized moves.", key="hc_speed")
+            
+    with init_state_tab:
+        initial_state_mode = st.radio(
+            "Initial State Mode", 
+            ["Random Initial State", "Custom Initial State"], 
+            index=0,
+            key="hc_init_mode", 
+            horizontal=True
+        )
+        
+        # Initialize default custom state in session_state if it doesn't exist
+        if "hc_custom_state_list" not in st.session_state or len(st.session_state.hc_custom_state_list) != board_size:
+            st.session_state.hc_custom_state_list = list(range(board_size)) 
+
+        if initial_state_mode == "Custom Initial State":
+            st.markdown(f"**Enter Row Index (0 to {board_size-1}) for each of the {board_size} columns:**")
+            
+            num_cols_display = min(board_size, 12) 
+            cols = st.columns(num_cols_display)
+            parsed_state = []
+            
+            for col_idx in range(board_size):
+                with cols[col_idx % num_cols_display]: 
+                    default_value = st.session_state.hc_custom_state_list[col_idx] if col_idx < len(st.session_state.hc_custom_state_list) else 0
+
+                    queen_row = st.number_input(
+                        f"Col {col_idx}", 
+                        min_value=0, max_value=board_size - 1, 
+                        value=default_value, 
+                        step=1, key=f"hc_custom_q_{col_idx}",
+                        label_visibility="visible"
+                    )
+                    parsed_state.append(queen_row)
+            
+            st.session_state.hc_custom_state_list = parsed_state
+        
+    st.markdown("---")
+
+    # --- 2. Run Button (Standalone) ---
+    if "hc_running" not in st.session_state:
+        st.session_state["hc_running"] = False
+        
+    # Button uses Streamlit's primary color
+    if st.button("🚀 Run Hill Climbing", key="run_hc", use_container_width=True, type="primary"): 
+        st.session_state["hc_running"] = True
+        st.rerun()
+
+    st.markdown("---")
+
+    # --- 3. Visualization and Results (Bottom Section) ---
+    
+    if st.session_state.hc_running:
+        st.markdown("### 🏃 Algorithm Execution")
+        
+        # --- Pre-run Setup ---
+        initial_state = None
+        # Assuming HillClimbingSolver, count_attacks are defined
+        solver = HillClimbingSolver(board_size, max_restarts, max_iterations) 
+
+        if initial_state_mode == "Random Initial State":
             initial_state = solver.generate_random_state()
-            
-            # Animation containers
-            board_placeholder = st.empty()
-            
-            stats_col1, stats_col2, stats_col3 = st.columns(3)
-            with stats_col1:
-                iter_metric = st.empty()
-            with stats_col2:
-                attack_metric = st.empty()
-            with stats_col3:
-                restart_metric = st.empty()
-            
+        else: # Custom Initial State
+            initial_state = st.session_state.hc_custom_state_list
+            if len(initial_state) != board_size:
+                st.error("Internal error: Custom state size mismatch.")
+                st.session_state.hc_running = False
+                st.stop()
+        
+        st.session_state.hc_initial_state_final = initial_state
+        initial_attacks = solver.count_attacks(initial_state)
+
+        # --- Visualization Containers ---
+        stats_col1, stats_col2, stats_col3 = st.columns(3)
+        with stats_col1: iter_metric = st.empty()
+        with stats_col2: attack_metric = st.empty()
+        with stats_col3: restart_metric = st.empty()
+        
+        board_col, progress_col = st.columns([1, 1])
+        with board_col: board_placeholder = st.empty() 
+        with progress_col: 
             progress_placeholder = st.empty()
-            chart_placeholder = st.empty()
+            chart_placeholder = st.empty() 
             
-            # Show initial state
-            with board_placeholder.container():
-                st.markdown(
-                    create_html_chessboard(initial_state, "🎬 Initial State", 
-                                          solver.count_attacks(initial_state)),
-                    unsafe_allow_html=True
-                )
+        # Show initial state in the animation area before starting
+        with board_placeholder.container():
+            st.markdown(
+                create_html_chessboard(initial_state, "🎬 Initial State", initial_attacks),
+                unsafe_allow_html=True
+            )
             
-            iter_metric.metric("Iteration", "0")
-            attack_metric.metric("Attacking Pairs", solver.count_attacks(initial_state))
-            restart_metric.metric("Restarts", "0")
+        iter_metric.metric("Iteration", "0")
+        attack_metric.metric("Attacking Pairs", initial_attacks)
+        restart_metric.metric("Restarts", "0")
+        
+        time.sleep(1)
+        
+        # Run algorithm
+        with st.spinner('🔄 Computing solution...'):
+            result = solver.solve(initial_state) 
+        
+        # --- Animation Loop ---
+        history = result['history']
+        attack_history = result['attack_history']
+        
+        progress_bar = progress_placeholder.progress(0)
+        step = max(1, len(history) // 50)
+        
+        for i in range(0, len(history), step):
+            state = history[i]
+            attacks = attack_history[i]
             
-            time.sleep(1)
+            board_placeholder.markdown(
+                create_html_chessboard(state, f"🎯 Iteration {i+1}/{len(history)}", attacks),
+                unsafe_allow_html=True
+            )
             
-            # Run algorithm
-            with st.spinner('🔄 Computing solution...'):
-                result = solver.solve(initial_state)
+            iter_metric.metric("Iteration", f"{i+1}/{len(history)}")
+            attack_metric.metric("Attacking Pairs", attacks)
+            restart_metric.metric("Restarts", result['restarts'])
             
-            # Animate
-            history = result['history']
-            attack_history = result['attack_history']
+            chart_placeholder.plotly_chart(
+                create_convergence_plot(attack_history, "📈 Convergence Progress", i),
+                use_container_width=True,
+                key=f"hc_chart_{i}"
+            )
             
-            progress_bar = progress_placeholder.progress(0)
-            step = max(1, len(history) // 50)
-            
-            for i in range(0, len(history), step):
-                state = history[i]
-                attacks = attack_history[i]
-                
-                board_placeholder.markdown(
-                    create_html_chessboard(state, f"🎯 Iteration {i+1}/{len(history)}", attacks),
-                    unsafe_allow_html=True
-                )
-                
-                iter_metric.metric("Iteration", f"{i+1}/{len(history)}")
-                attack_metric.metric("Attacking Pairs", attacks)
-                restart_metric.metric("Restarts", result['restarts'])
-                
-                chart_placeholder.plotly_chart(
-                    create_convergence_plot(attack_history, "📈 Convergence Progress", i),
-                    use_container_width=True,
-                    key=f"hc_chart_{i}"
-                )
-                
-                progress_bar.progress((i + 1) / len(history))
-                time.sleep(animation_speed)
-            
-            progress_placeholder.empty()
-            
-            # Final result
+            progress_bar.progress((i + 1) / len(history))
+            time.sleep(animation_speed)
+        
+        # Clear animation elements
+        board_placeholder.empty() 
+        progress_placeholder.empty()
+        chart_placeholder.empty() 
+        
+        # --- Final Summary & Comparison ---
+        st.markdown("---")
+        st.markdown("### 📋 Final Results and Analysis")
+        
+        # 4. Display Initial and Final States Side-by-Side (ROW 1: Boards)
+        initial_final_col1, initial_final_col2 = st.columns(2)
+        
+        final_solution = result['solution']
+        final_attacks = 0 if result['success'] else solver.count_attacks(final_solution)
+        
+        with initial_final_col1:
+            # Display the original initial state 
+            st.markdown(
+                create_html_chessboard(st.session_state.hc_initial_state_final, 
+                                       f"🎬 **Initial State** (Attacks: {initial_attacks})", 
+                                       initial_attacks),
+                unsafe_allow_html=True
+            )
+
+        with initial_final_col2:
+            # Display the final state
             if result['success']:
-                st.balloons()
                 st.success("🎉 Solution Found!")
-                board_placeholder.markdown(
-                    create_html_chessboard(result['solution'], "✅ Final Solution", 0),
+                st.balloons()
+                st.markdown(
+                    create_html_chessboard(final_solution, "✅ **Final Solution** (Attacks: 0)", 0),
                     unsafe_allow_html=True
                 )
             else:
-                st.warning("⚠️ No solution found within iteration limit")
+                st.warning("⚠️ Local Optimum Reached.")
+                st.markdown(
+                    create_html_chessboard(final_solution, f"❌ **Final State** (Attacks: {final_attacks})", final_attacks),
+                    unsafe_allow_html=True
+                )
+        
+        # 5. Display Convergence Chart (ROW 2 - Full Width)
+        st.markdown("---")
+        st.markdown("#### 📈 Convergence Path")
+        st.plotly_chart(
+            create_convergence_plot(result['attack_history'], "Complete Attack Count over Iterations"),
+            use_container_width=True
+        )
             
-            # Summary metrics
-            st.markdown("### 📋 Summary")
-            metric_cols = st.columns(4)
-            with metric_cols[0]:
-                st.metric("✅ Success", "Yes" if result['success'] else "No")
-            with metric_cols[1]:
-                st.metric("🔄 Restarts", result['restarts'])
-            with metric_cols[2]:
-                st.metric("🔢 Total Iterations", result['iterations'])
-            with metric_cols[3]:
-                st.metric("⏱️ Runtime", f"{result['runtime']*1000:.2f} ms")
+        # Summary metrics (below the boards and chart)
+        st.markdown("---")
+        metric_cols = st.columns(4)
+        with metric_cols[0]: st.metric("✅ Success", "Yes" if result['success'] else "No")
+        with metric_cols[1]: st.metric("🔄 Restarts", result['restarts'])
+        with metric_cols[2]: st.metric("🔢 Total Iterations", result['iterations'])
+        with metric_cols[3]: st.metric("⏱️ Runtime", f"{result['runtime']*1000:.2f} ms")
+        
+        # Detailed Analysis Expander
+        with st.expander("📊 Detailed Run Metrics", expanded=False):
+            st.json({
+                'Initial Attacks': initial_attacks,
+                'Final Attacks': final_attacks,
+                'Total States Explored': len(history),
+                'Average Iterations per Restart': f"{result['iterations'] / max(1, result['restarts']):.1f}"
+            })
             
-            with st.expander("📊 Detailed Analysis", expanded=False):
-                st.plotly_chart(
-                    create_convergence_plot(result['attack_history'], "Complete Convergence Path"),
-                    use_container_width=True
+        st.session_state.hc_result = result
+        st.session_state.hc_running = False 
+        
+    elif 'hc_result' in st.session_state:
+        st.info("Configuration complete. Press the **Run Hill Climbing** button to start a new simulation.")
+def show_csp_backtracking_page():
+    """CSP Backtracking page with custom initial state input, two final boards, and dynamic metric display."""
+    
+    st.markdown('## 🔙 CSP with Backtracking')
+    
+    # --- 1. Top Configuration & Controls ---
+    st.markdown("### ⚙️ Configuration and Controls")
+    
+    param_tab, init_state_tab = st.tabs(["Algorithm Parameters", "Initial State Setup"])
+    
+    with param_tab:
+        config_col1, config_col2 = st.columns(2)
+        with config_col1:
+            board_size = st.slider("🎲 Board Size (N)", 4, 12, 8, key="csp_size")
+            animation_speed = st.slider("⚡ Animation Speed (s)", 0.05, 1.0, 0.1, 
+                                        help="Seconds between frames", key="csp_speed")
+            
+        with config_col2:
+            st.empty() 
+            
+    with init_state_tab:
+        initial_state_mode = st.radio(
+            "Initial State Mode", 
+            ["Empty Initial State (Standard CSP)", "Custom Initial State"], 
+            index=0,
+            key="csp_init_mode", 
+            horizontal=True
+        )
+        
+        # Initialize default custom state
+        if "csp_custom_state_list" not in st.session_state or len(st.session_state.csp_custom_state_list) != board_size:
+            st.session_state.csp_custom_state_list = [-1] * board_size 
+
+        initial_state_for_run: Optional[List[int]] = None
+        
+        if initial_state_mode == "Custom Initial State":
+            st.markdown(f"**Enter Row Index (0 to {board_size-1}) for each column, or **-1** to leave empty:**")
+            
+            num_cols_display = min(board_size, 12) 
+            cols = st.columns(num_cols_display)
+            parsed_state = []
+            
+            for col_idx in range(board_size):
+                with cols[col_idx % num_cols_display]: 
+                    default_value = st.session_state.csp_custom_state_list[col_idx] if col_idx < len(st.session_state.csp_custom_state_list) else -1
+
+                    queen_row = st.number_input(
+                        f"Col {col_idx}", 
+                        min_value=-1, max_value=board_size - 1, 
+                        value=default_value, 
+                        step=1, key=f"csp_custom_q_{col_idx}",
+                        label_visibility="visible"
+                    )
+                    parsed_state.append(int(queen_row))
+            
+            st.session_state.csp_custom_state_list = parsed_state
+            initial_state_for_run = st.session_state.csp_custom_state_list
+        else:
+            initial_state_for_run = [-1] * board_size
+
+    st.markdown("---")
+
+    # --- 2. Run Button (Standalone) ---
+    if "csp_running" not in st.session_state:
+        st.session_state["csp_running"] = False
+        
+    # Use col2 as the main execution area for validation feedback
+    execution_col = st.columns([1, 2])[1] 
+
+    if st.button("🚀 Run CSP Backtracking", key="run_csp", use_container_width=True, type="primary"):
+        # Store initial state *before* running for final comparison
+        st.session_state["csp_initial_state_final"] = initial_state_for_run
+        
+        # --- VALIDATION: Check for conflicts in the custom initial state ---
+        solver_temp = CSPBacktrackingSolver(board_size) 
+        initial_attacks = solver_temp.count_attacks(initial_state_for_run)
+        
+        if initial_attacks > 0 and initial_state_mode == "Custom Initial State":
+            with execution_col:
+                st.error(f"❌ **Invalid Initial State:** The custom state has {initial_attacks} attacking pairs. Backtracking requires a conflict-free starting point.")
+                st.warning("Please modify the row placements to ensure no queens attack each other before clicking run.")
+                st.markdown(
+                    create_html_chessboard(initial_state_for_run, 
+                                           f"⚠️ Conflicting Initial State (Attacks: {initial_attacks})", 
+                                           initial_attacks),
+                    unsafe_allow_html=True
+                )
+            st.stop()
+            
+        st.session_state["csp_running"] = True
+        st.rerun()
+
+    st.markdown("---")
+
+    # --- 3. Visualization and Results (Bottom Section) ---
+    
+    with execution_col:
+        if 'csp_running' in st.session_state and st.session_state.csp_running:
+            
+            # --- Pre-run Setup ---
+            st.markdown("### 🏃 Algorithm Execution")
+            solver = CSPBacktrackingSolver(board_size)
+            initial_state = st.session_state.csp_initial_state_final
+            initial_attacks = solver.count_attacks(initial_state)
+
+            # --- Visualization Containers ---
+            stats_col1, stats_col2, stats_col3 = st.columns(3)
+            with stats_col1: iter_metric = st.empty()
+            with stats_col2: attack_metric = st.empty()
+            with stats_col3: col_metric = st.empty()
+            
+            board_col, progress_col = st.columns([1, 1])
+            with board_col: board_placeholder = st.empty() 
+            with progress_col: 
+                progress_placeholder = st.empty()
+                chart_placeholder = st.empty() 
+                
+            # Show initial state
+            with board_placeholder.container():
+                st.markdown(
+                    create_html_chessboard(initial_state, "🎬 Initial State", initial_attacks),
+                    unsafe_allow_html=True
                 )
                 
-                st.json({
-                    'Initial Attacks': solver.count_attacks(initial_state),
-                    'Final Attacks': 0 if result['success'] else solver.count_attacks(result['solution']),
-                    'Total States Explored': len(history),
-                    'Average Iterations per Restart': f"{result['iterations'] / result['restarts']:.1f}"
-                })
+            current_col_proc = sum(1 for x in initial_state if x != -1) 
+            iter_metric.metric("Iteration", "0")
+            attack_metric.metric("Attacking Pairs", initial_attacks)
+            col_metric.metric("Column Processing", f"{current_col_proc}/{board_size}")
             
-            st.session_state.hc_result = result
-
-
-def show_csp_backtracking_page():
-    """CSP Backtracking page with animation."""
-    st.markdown('<div class="algorithm-title">🔙 CSP with Backtracking</div>', unsafe_allow_html=True)
-    
-    col1, col2 = st.columns([1, 2])
-    
-    with col1:
-        st.markdown("### ⚙️ Configuration")
-        
-        with st.container():
-            board_size = st.slider("🎲 Board Size", 4, 12, 8, key="csp_size")
-            animation_speed = st.slider("⚡ Animation Speed", 0.05, 1.0, 0.1, 
-                                       help="Seconds between frames", key="csp_speed")
-        
-        st.markdown("---")
-        
-        st.markdown("""
-        **📚 Algorithm Overview:**
-        
-        CSP Backtracking is a **systematic search**:
-        - 🎯 Builds solution column by column
-        - ✅ Checks constraints before placement
-        - 🔙 Backtracks on conflicts
-        - 💯 Guarantees finding solution if exists
-        """)
-        
-        st.markdown("---")
-        
-        if st.button("🚀 Run CSP Backtracking", key="run_csp", use_container_width=True):
-            # st.session_state.csp_running = True
-            st.session_state["csp_running"] = True
-    
-    with col2:
-        if 'csp_running' in st.session_state and st.session_state.csp_running:
-            solver = CSPBacktrackingSolver(board_size)
-            
-            # Animation containers
-            board_placeholder = st.empty()
-            
-            stats_col1, stats_col2, stats_col3 = st.columns(3)
-            with stats_col1:
-                iter_metric = st.empty()
-            with stats_col2:
-                attack_metric = st.empty()
-            with stats_col3:
-                col_metric = st.empty()
-            
-            progress_placeholder = st.empty()
-            chart_placeholder = st.empty()
+            time.sleep(1) 
             
             # Run algorithm
-            result = solver.solve()
+            with st.spinner('🔄 Searching for solution...'):
+                result = solver.solve(initial_state) 
             
-            # Animate
+            # --- Animation Loop ---
             history = result['history']
             attack_history = result['attack_history']
             
@@ -947,12 +1108,15 @@ def show_csp_backtracking_page():
                 state = history[i]
                 attacks = attack_history[i]
                 
-                # Find current column being processed
-                current_col = sum(1 for x in state if x != 0)
+                current_col = sum(1 for x in state if x != -1) 
                 
                 board_placeholder.markdown(
-                    create_html_chessboard(state, f"🔍 Iteration {i+1}/{len(history)}", 
-                                         attacks, highlight_col=current_col-1 if current_col > 0 else -1),
+                    create_html_chessboard(
+                        state, 
+                        f"🔍 Iteration {i+1}/{len(history)}", 
+                        attacks, 
+                        highlight_col=current_col-1 if current_col > 0 else -1
+                    ),
                     unsafe_allow_html=True
                 )
                 
@@ -961,7 +1125,7 @@ def show_csp_backtracking_page():
                 col_metric.metric("Column Processing", f"{current_col}/{board_size}")
                 
                 chart_placeholder.plotly_chart(
-                    create_convergence_plot(attack_history, "📈 Convergence Progress", i),
+                    create_convergence_plot(attack_history, "📈 Search Progress", i),
                     use_container_width=True,
                     key=f"csp_chart_{i}"
                 )
@@ -969,58 +1133,397 @@ def show_csp_backtracking_page():
                 progress_bar.progress((i + 1) / len(history))
                 time.sleep(animation_speed)
             
+            # Clear animation elements
+            board_placeholder.empty() 
             progress_placeholder.empty()
+            chart_placeholder.empty() 
             
-            # Final result
+            # --- Final Summary & Comparison ---
+            st.markdown("---")
+            st.markdown("### 📋 Final Results and Analysis")
+            
+            # 4. Display Initial and Final States Side-by-Side (ROW 1: Boards)
+            initial_final_col1, initial_final_col2 = st.columns(2)
+            
+            final_solution = result['solution']
+            final_attacks = 0 if result['success'] else solver.count_attacks(final_solution)
+            
+            with initial_final_col1:
+                st.markdown(
+                    create_html_chessboard(initial_state, 
+                                           f"🎬 **Initial State** (Queens Placed: {sum(1 for x in initial_state if x != -1)})", 
+                                           initial_attacks),
+                    unsafe_allow_html=True
+                )
+
+            with initial_final_col2:
+                if result['success']:
+                    st.success("🎉 Solution Found!")
+                    st.balloons()
+                    st.markdown(
+                        create_html_chessboard(final_solution, "✅ **Final Solution**", 0),
+                        unsafe_allow_html=True
+                    )
+                else:
+                    st.warning("❌ Search Terminated.")
+                    st.markdown(
+                        create_html_chessboard(final_solution, "❌ **Final Partial State**", final_attacks),
+                        unsafe_allow_html=True
+                    )
+            
+            # 5. Display Convergence Chart (ROW 2 - Full Width)
+            st.markdown("---")
+            st.markdown("#### 📈 Complete Search Path")
+            st.plotly_chart(
+                create_convergence_plot(result['attack_history'], "Attack Count over Search Steps"),
+                use_container_width=True
+            )
+                
+            # Summary metrics (below the boards and chart)
+            st.markdown("---")
+            
+            # Check if the 'backtracks' data is available
+            show_backtracks = 'backtracks' in result
+            num_metrics = 4 if show_backtracks else 3
+            
+            metric_cols = st.columns(num_metrics)
+            
+            # Column 1: Success
+            with metric_cols[0]: 
+                st.metric("✅ Success", "Yes" if result['success'] else "No")
+                
+            # Column 2: Iterations
+            with metric_cols[1]: 
+                st.metric("🔢 Total Iterations", result['iterations'])
+            
+            if show_backtracks:
+                # Column 3: Backtracks (if present)
+                with metric_cols[2]: 
+                    st.metric("🔙 Backtracks", result['backtracks'])
+                
+                # Column 4: Runtime
+                with metric_cols[3]: 
+                    st.metric("⏱️ Runtime", f"{result['runtime']*1000:.2f} ms")
+            else:
+                # Column 3: Runtime (if Backtracks is absent)
+                with metric_cols[2]: 
+                    st.metric("⏱️ Runtime", f"{result['runtime']*1000:.2f} ms")
+            
+            # Detailed Analysis Expander
+            with st.expander("📊 Detailed Run Metrics", expanded=False):
+                detail_json = {
+                    'Initial Queens Placed': sum(1 for x in initial_state if x != -1),
+                    'Final Attacks': 0 if result['success'] else final_attacks,
+                    'Total States Explored': len(history),
+                    'Method': result['method'],
+                }
+                if show_backtracks:
+                    detail_json['Backtracks'] = result['backtracks']
+                
+                st.json(detail_json)
+                
+            st.session_state.csp_result = result
+            st.session_state.csp_running = False 
+            
+        elif 'csp_result' in st.session_state:
+            st.info("Configuration complete. Press the **Run CSP Backtracking** button to start a new search.")
+def show_csp_backtracking_page():
+    """CSP Backtracking page with custom initial state input and two final boards display."""
+    
+    st.markdown('## 🔙 CSP with Backtracking')
+    
+    # --- 1. Top Configuration & Controls ---
+    st.markdown("### ⚙️ Configuration and Controls")
+    
+    param_tab, init_state_tab = st.tabs(["Algorithm Parameters", "Initial State Setup"])
+    
+    with param_tab:
+        config_col1, config_col2 = st.columns(2)
+        with config_col1:
+            board_size = st.slider("🎲 Board Size (N)", 4, 12, 8, key="csp_size")
+            # Max iterations is less relevant for backtracking, but we'll keep the speed control
+            animation_speed = st.slider("⚡ Animation Speed (s)", 0.05, 1.0, 0.1, 
+                                        help="Seconds between frames", key="csp_speed")
+            
+        with config_col2:
+            # Placeholder for future CSP controls (e.g., Variable Ordering, Value Ordering)
+            # Keeping the layout consistent with Hill Climbing
+            st.empty() 
+            
+    with init_state_tab:
+        # Initial State Input/Selection (Adapted from Hill Climbing)
+        initial_state_mode = st.radio(
+            "Initial State Mode", 
+            ["Empty Initial State (Standard CSP)", "Custom Initial State"], 
+            index=0,
+            key="csp_init_mode", 
+            horizontal=True
+        )
+        
+        # Initialize default custom state in session_state if it doesn't exist
+        # Default state for custom CSP: all queens at row 0 (which is an empty board for N-Queens CSP solver)
+        if "csp_custom_state_list" not in st.session_state or len(st.session_state.csp_custom_state_list) != board_size:
+            # Use -1 to represent an empty position in a column for CSP initialization
+            st.session_state.csp_custom_state_list = [-1] * board_size 
+
+        initial_state_for_run = None
+        
+        if initial_state_mode == "Custom Initial State":
+            st.markdown(f"**Enter Row Index (0 to {board_size-1}) for each column, or **-1** to leave empty:**")
+            
+            num_cols_display = min(board_size, 12) 
+            cols = st.columns(num_cols_display)
+            parsed_state = []
+            
+            for col_idx in range(board_size):
+                with cols[col_idx % num_cols_display]: 
+                    default_value = st.session_state.csp_custom_state_list[col_idx] if col_idx < len(st.session_state.csp_custom_state_list) else -1
+
+                    queen_row = st.number_input(
+                        f"Col {col_idx}", 
+                        min_value=-1, max_value=board_size - 1, # Allows -1 for empty
+                        value=default_value, 
+                        step=1, key=f"csp_custom_q_{col_idx}",
+                        label_visibility="visible"
+                    )
+                    parsed_state.append(queen_row)
+            
+            st.session_state.csp_custom_state_list = parsed_state
+            initial_state_for_run = st.session_state.csp_custom_state_list
+        else:
+             # Standard Empty state: -1 for every column
+            initial_state_for_run = [-1] * board_size
+
+    st.markdown("---")
+
+    # --- 2. Run Button (Standalone) ---
+    if "csp_running" not in st.session_state:
+        st.session_state["csp_running"] = False
+        
+    if st.button("🚀 Run CSP Backtracking", key="run_csp", use_container_width=True, type="primary"):
+        st.session_state["csp_running"] = True
+        st.session_state["csp_initial_state_final"] = initial_state_for_run # Store for final comparison
+        st.rerun()
+
+    st.markdown("---")
+
+    # --- 3. Visualization and Results (Bottom Section) ---
+    
+    if 'csp_running' in st.session_state and st.session_state.csp_running:
+        st.markdown("### 🏃 Algorithm Execution")
+        
+        # --- Pre-run Setup ---
+        solver = CSPBacktrackingSolver(board_size)
+        initial_state = st.session_state.csp_initial_state_final
+        # Initial attacks for the visual metric (should be calculated on the initial state)
+        initial_attacks = solver.count_attacks(initial_state) 
+
+        # --- Visualization Containers ---
+        stats_col1, stats_col2, stats_col3 = st.columns(3)
+        with stats_col1: iter_metric = st.empty()
+        with stats_col2: attack_metric = st.empty()
+        with stats_col3: col_metric = st.empty()
+        
+        board_col, progress_col = st.columns([1, 1])
+        with board_col: board_placeholder = st.empty() 
+        with progress_col: 
+            progress_placeholder = st.empty()
+            chart_placeholder = st.empty() 
+            
+        # Show initial state in the animation area before starting
+        with board_placeholder.container():
+            # Initial state display (before search starts)
+            st.markdown(
+                create_html_chessboard(initial_state, "🎬 Initial State", initial_attacks),
+                unsafe_allow_html=True
+            )
+            
+        # Initial metric display
+        current_col_proc = sum(1 for x in initial_state if x != -1) # Count placed queens
+        iter_metric.metric("Iteration", "0")
+        attack_metric.metric("Attacking Pairs", initial_attacks)
+        col_metric.metric("Column Processing", f"{current_col_proc}/{board_size}")
+        
+        time.sleep(1) # Pause for initial view
+        
+        # Run algorithm from the initial state
+        with st.spinner('🔄 Searching for solution...'):
+            result = solver.solve(initial_state) # Pass initial state to solver
+        
+        # --- Animation Loop ---
+        history = result['history']
+        attack_history = result['attack_history']
+        
+        progress_bar = progress_placeholder.progress(0)
+        step = max(1, len(history) // 50)
+        
+        for i in range(0, len(history), step):
+            state = history[i]
+            attacks = attack_history[i]
+            
+            # Find current column being processed
+            current_col = sum(1 for x in state if x != -1) 
+            
+            board_placeholder.markdown(
+                create_html_chessboard(
+                    state, 
+                    f"🔍 Iteration {i+1}/{len(history)}", 
+                    attacks, 
+                    highlight_col=current_col-1 if current_col > 0 else -1
+                ),
+                unsafe_allow_html=True
+            )
+            
+            iter_metric.metric("Iteration", f"{i+1}/{len(history)}")
+            attack_metric.metric("Attacking Pairs", attacks)
+            col_metric.metric("Column Processing", f"{current_col}/{board_size}")
+            
+            chart_placeholder.plotly_chart(
+                create_convergence_plot(attack_history, "📈 Search Progress", i),
+                use_container_width=True,
+                key=f"csp_chart_{i}"
+            )
+            
+            progress_bar.progress((i + 1) / len(history))
+            time.sleep(animation_speed)
+        
+        # Clear animation elements
+        board_placeholder.empty() 
+        progress_placeholder.empty()
+        chart_placeholder.empty() 
+        
+        # --- Final Summary & Comparison ---
+        st.markdown("---")
+        st.markdown("### 📋 Final Results and Analysis")
+        
+        # 4. Display Initial and Final States Side-by-Side (ROW 1: Boards)
+        initial_final_col1, initial_final_col2 = st.columns(2)
+        
+        final_solution = result['solution']
+        final_attacks = 0 if result['success'] else solver.count_attacks(final_solution) # Recalculate if not successful
+        
+        # Use the stored initial state for the final comparison
+        initial_state_final = st.session_state.csp_initial_state_final
+        
+        with initial_final_col1:
+            # Display the original initial state (Chessboard 1)
+            st.markdown(
+                create_html_chessboard(initial_state_final, 
+                                       f"🎬 **Initial State** (Queens Placed: {sum(1 for x in initial_state_final if x != -1)})", 
+                                       initial_attacks),
+                unsafe_allow_html=True
+            )
+
+        with initial_final_col2:
+            # Display the final state (Chessboard 2)
             if result['success']:
-                st.balloons()
                 st.success("🎉 Solution Found!")
-                board_placeholder.markdown(
-                    create_html_chessboard(result['solution'], "✅ Final Solution", 0),
+                st.balloons()
+                st.markdown(
+                    create_html_chessboard(final_solution, "✅ **Final Solution**", 0),
                     unsafe_allow_html=True
                 )
             else:
-                st.error("❌ No solution found")
-            
-            # Summary metrics
-            st.markdown("### 📋 Summary")
-            metric_cols = st.columns(3)
-            with metric_cols[0]:
-                st.metric("✅ Success", "Yes" if result['success'] else "No")
-            with metric_cols[1]:
-                st.metric("🔢 Total Iterations", result['iterations'])
-            with metric_cols[2]:
-                st.metric("⏱️ Runtime", f"{result['runtime']*1000:.2f} ms")
-            
-            with st.expander("📊 Detailed Analysis", expanded=False):
-                st.plotly_chart(
-                    create_convergence_plot(result['attack_history'], "Complete Search Path"),
-                    use_container_width=True
+                st.warning("❌ Search Terminated.")
+                st.markdown(
+                    create_html_chessboard(final_solution, "❌ **Final Partial State**", final_attacks),
+                    unsafe_allow_html=True
                 )
-                
-                st.json({
-                    'Method': result['method'],
-                    'Total States Explored': len(history),
-                    'Final Attacks': 0 if result['success'] else 'N/A',
-                    'Search Efficiency': f"{result['iterations'] / board_size:.2f} iterations/column"
-                })
+        
+        # 5. Display Convergence Chart (ROW 2 - Full Width)
+        st.markdown("---")
+        st.markdown("#### 📈 Complete Search Path")
+        st.plotly_chart(
+            create_convergence_plot(result['attack_history'], "Attack Count over Search Steps"),
+            use_container_width=True
+        )
             
-            st.session_state.csp_result = result
+        # Summary metrics (below the boards and chart)
+        st.markdown("---")
+        metric_cols = st.columns(3)
+        with metric_cols[0]: st.metric("✅ Success", "Yes" if result['success'] else "No")
+        with metric_cols[1]: st.metric("🔢 Total Iterations", result['iterations'])
+        # with metric_cols[2]: st.metric("🔙 Backtracks", result['backtracks']) # Assuming solver returns 'backtracks'
+        with metric_cols[2]: st.metric("⏱️ Runtime", f"{result['runtime']*1000:.2f} ms")
+        
+        # Detailed Analysis Expander
+        with st.expander("📊 Detailed Run Metrics", expanded=False):
+            st.json({
+                'Initial Queens Placed': sum(1 for x in initial_state_final if x != -1),
+                'Final Attacks': 0 if result['success'] else final_attacks,
+                'Total States Explored': len(history),
+                'Method': result['method'],
+            })
+            
+        st.session_state.csp_result = result
+        st.session_state.csp_running = False 
+        
+    elif 'csp_result' in st.session_state:
+        st.info("Configuration complete. Press the **Run CSP Backtracking** button to start a new search.")
+import streamlit as st
+import time
+from typing import List, Optional # Assuming these imports are available
 
+# NOTE: The implementation of CSPEnhancedSolver (must now handle a non-empty initial state), 
+# create_html_chessboard, and create_convergence_plot is assumed to be available elsewhere.
+# CSPEnhancedSolver is assumed to return 'backtracks' or 'efficiency_score'.
 
 def show_csp_enhanced_page():
-    """Enhanced CSP page with animation."""
+    """Enhanced CSP page with animation, custom initial state, and robust final summary."""
+    
     st.markdown('<div class="algorithm-title">⚡ CSP with Forward Checking & MRV</div>', unsafe_allow_html=True)
     
     col1, col2 = st.columns([1, 2])
     
     with col1:
-        st.markdown("### ⚙️ Configuration")
+        st.markdown("### ⚙️ Configuration and Controls")
         
-        with st.container():
-            board_size = st.slider("🎲 Board Size", 4, 12, 8, key="cspe_size")
-            animation_speed = st.slider("⚡ Animation Speed", 0.05, 1.0, 0.1, 
-                                       help="Seconds between frames", key="cspe_speed")
+        param_tab, init_state_tab = st.tabs(["Algorithm Parameters", "Initial State Setup"])
+
+        with param_tab:
+            board_size = st.slider("🎲 Board Size (N)", 4, 12, 8, key="cspe_size")
+            animation_speed = st.slider("⚡ Animation Speed (s)", 0.05, 1.0, 0.1, 
+                                        help="Seconds between frames", key="cspe_speed")
+            
+        initial_state_for_run: Optional[List[int]] = None
+        
+        with init_state_tab:
+            initial_state_mode = st.radio(
+                "Initial State Mode", 
+                ["Empty Initial State (Standard CSP)", "Custom Initial State"], 
+                index=0,
+                key="cspe_init_mode", 
+                horizontal=True
+            )
+            
+            # Initialize default custom state (Defaulting to row 0)
+            if "cspe_custom_state_list" not in st.session_state or len(st.session_state.cspe_custom_state_list) != board_size:
+                st.session_state.cspe_custom_state_list = [0] * board_size 
+
+            if initial_state_mode == "Custom Initial State":
+                st.markdown(f"**Enter Row Index (0 to {board_size-1}), or **-1** to leave empty:**")
+                
+                num_cols_display = min(board_size, 12) 
+                cols = st.columns(num_cols_display)
+                parsed_state = []
+                
+                for col_idx in range(board_size):
+                    with cols[col_idx % num_cols_display]: 
+                        default_value = st.session_state.cspe_custom_state_list[col_idx] if col_idx < len(st.session_state.cspe_custom_state_list) else 0
+
+                        queen_row = st.number_input(
+                            f"Col {col_idx}", 
+                            min_value=-1, max_value=board_size - 1, 
+                            value=default_value, 
+                            step=1, key=f"cspe_custom_q_{col_idx}",
+                            label_visibility="visible"
+                        )
+                        parsed_state.append(int(queen_row))
+                
+                st.session_state.cspe_custom_state_list = parsed_state
+                initial_state_for_run = st.session_state.cspe_custom_state_list
+            else:
+                initial_state_for_run = [-1] * board_size
         
         st.markdown("---")
         
@@ -1031,35 +1534,54 @@ def show_csp_enhanced_page():
         - 🎯 **Forward Checking:** Prunes domains early
         - 🧠 **MRV:** Picks most constrained variable
         - ⚡ More efficient than basic backtracking
-        - 💯 Guarantees optimal search path
         """)
         
         st.markdown("---")
         
         if st.button("🚀 Run Enhanced CSP", key="run_cspe", use_container_width=True):
-            # st.session_state.cspe_running = True
+            st.session_state["cspe_initial_state_final"] = initial_state_for_run
+            
+            # --- VALIDATION: Check for conflicts in the custom initial state ---
+            solver_temp = CSPEnhancedSolver(board_size) 
+            initial_attacks = solver_temp.count_attacks(initial_state_for_run)
+            
+            if initial_attacks > 0 and initial_state_mode == "Custom Initial State":
+                with col2:
+                    st.error(f"❌ **Invalid Initial State:** The custom state has {initial_attacks} attacking pairs.")
+                    st.warning("Please modify the row placements to ensure no queens attack each other.")
+                    st.markdown(
+                        create_html_chessboard(initial_state_for_run, 
+                                               f"⚠️ Conflicting Initial State (Attacks: {initial_attacks})", 
+                                               initial_attacks),
+                        unsafe_allow_html=True
+                    )
+                st.stop()
+                
             st.session_state["cspe_running"] = True
-    
+            st.rerun()
+            
     with col2:
         if 'cspe_running' in st.session_state and st.session_state.cspe_running:
-            solver = CSPEnhancedSolver(board_size)
             
+            st.markdown("### 🏃 Algorithm Execution")
+            solver = CSPEnhancedSolver(board_size)
+            initial_state = st.session_state.cspe_initial_state_final
+            initial_attacks = solver.count_attacks(initial_state)
+
             # Animation containers
             board_placeholder = st.empty()
             
             stats_col1, stats_col2, stats_col3 = st.columns(3)
-            with stats_col1:
-                iter_metric = st.empty()
-            with stats_col2:
-                attack_metric = st.empty()
-            with stats_col3:
-                efficiency_metric = st.empty()
+            with stats_col1: iter_metric = st.empty()
+            with stats_col2: attack_metric = st.empty()
+            with stats_col3: efficiency_metric = st.empty() # Keeping original metric
             
             progress_placeholder = st.empty()
-            chart_placeholder = st.empty()
+            # chart_placeholder is REMOVED from animation area
             
             # Run algorithm
-            result = solver.solve()
+            with st.spinner('🔄 Searching for solution...'):
+                result = solver.solve(initial_state) # Pass initial state
             
             # Animate
             history = result['history']
@@ -1072,64 +1594,120 @@ def show_csp_enhanced_page():
                 state = history[i]
                 attacks = attack_history[i]
                 
-                current_col = sum(1 for x in state if x != 0)
+                # Assuming state represents a partial solution (row placement)
+                current_col = sum(1 for x in state if x != -1)
                 
                 board_placeholder.markdown(
                     create_html_chessboard(state, f"🧠 Iteration {i+1}/{len(history)}", 
-                                         attacks, highlight_col=current_col-1 if current_col > 0 else -1),
+                                            attacks, highlight_col=current_col-1 if current_col > 0 else -1),
                     unsafe_allow_html=True
                 )
                 
                 iter_metric.metric("Iteration", f"{i+1}/{len(history)}")
                 attack_metric.metric("Attacking Pairs", attacks)
+                # Keep the original metric from the provided code
                 efficiency_metric.metric("Efficiency", f"{(i+1)/board_size:.1f}x")
                 
-                chart_placeholder.plotly_chart(
-                    create_convergence_plot(attack_history, "📈 Convergence Progress", i),
-                    use_container_width=True,
-                    key=f"cspe_chart_{i}"
-                )
+                # REMOVED: chart_placeholder.plotly_chart(...) to ensure chart displays only at the end
                 
                 progress_bar.progress((i + 1) / len(history))
                 time.sleep(animation_speed)
             
             progress_placeholder.empty()
+            board_placeholder.empty() # Clear board for final summary display
+
+            # --- Final Summary & Comparison ---
+            st.markdown("---")
+            st.markdown("### 📋 Final Results and Analysis")
             
-            # Final result
-            if result['success']:
-                st.balloons()
-                st.success("🎉 Solution Found!")
-                board_placeholder.markdown(
-                    create_html_chessboard(result['solution'], "✅ Final Solution", 0),
+            # 1. Display Initial and Final States Side-by-Side (ROW 1: Boards)
+            initial_final_col1, initial_final_col2 = st.columns(2)
+            
+            final_solution = result['solution']
+            final_attacks = 0 if result['success'] else solver.count_attacks(final_solution)
+            initial_state_final = st.session_state.cspe_initial_state_final 
+            
+            with initial_final_col1:
+                # Display the original initial state (Chessboard 1)
+                st.markdown(
+                    create_html_chessboard(initial_state_final, 
+                                           f"🎬 **Initial State** (Queens Placed: {sum(1 for x in initial_state_final if x != -1)})", 
+                                           initial_attacks),
                     unsafe_allow_html=True
                 )
-            else:
-                st.error("❌ No solution found")
+
+            with initial_final_col2:
+                # Display the final state (Chessboard 2)
+                if result['success']:
+                    st.success("🎉 Solution Found!")
+                    st.balloons()
+                    st.markdown(
+                        create_html_chessboard(final_solution, "✅ **Final Solution**", 0),
+                        unsafe_allow_html=True
+                    )
+                else:
+                    st.warning("❌ Search Terminated.")
+                    st.markdown(
+                        create_html_chessboard(final_solution, "❌ **Final Partial State**", final_attacks),
+                        unsafe_allow_html=True
+                    )
+
+            # 2. Display Convergence Chart (ROW 2 - Full Width - ONLY AFTER ANIMATION)
+            st.markdown("---")
+            st.markdown("#### 📈 Complete Search Path")
+            st.plotly_chart(
+                create_convergence_plot(result['attack_history'], "Attack Count over Search Steps"),
+                use_container_width=True
+            )
             
-            # Summary metrics
-            st.markdown("### 📋 Summary")
-            metric_cols = st.columns(3)
-            with metric_cols[0]:
+            # 3. Dynamic Summary metrics
+            st.markdown("---")
+            
+            # Check for optional metrics like 'backtracks' or 'nodes_explored'
+            show_backtracks = 'backtracks' in result
+            num_metrics = 3 + (1 if show_backtracks else 0)
+            
+            metric_cols = st.columns(num_metrics)
+            
+            # Common Metrics
+            with metric_cols[0]: 
                 st.metric("✅ Success", "Yes" if result['success'] else "No")
-            with metric_cols[1]:
+            with metric_cols[1]: 
                 st.metric("🔢 Total Iterations", result['iterations'])
-            with metric_cols[2]:
-                st.metric("⏱️ Runtime", f"{result['runtime']*1000:.2f} ms")
             
+            if show_backtracks:
+                # Backtracks (Conditional)
+                with metric_cols[2]: 
+                    st.metric("🔙 Backtracks", result['backtracks'])
+                # Runtime (Column 4)
+                with metric_cols[3]: 
+                    st.metric("⏱️ Runtime", f"{result['runtime']*1000:.2f} ms")
+            else:
+                # Runtime (Column 3)
+                with metric_cols[2]: 
+                    st.metric("⏱️ Runtime", f"{result['runtime']*1000:.2f} ms")
+            
+            # Detailed Analysis Expander
             with st.expander("📊 Detailed Analysis", expanded=False):
-                st.plotly_chart(
-                    create_convergence_plot(result['attack_history'], "Complete Search Path"),
-                    use_container_width=True
-                )
-                
-                st.json({
+                detail_json = {
                     'Method': result['method'],
+                    'Initial Queens Placed': sum(1 for x in initial_state_final if x != -1),
                     'Total States Explored': len(history),
-                    'Final Attacks': 0 if result['success'] else 'N/A',
-                    'Heuristic Efficiency': f"{result['iterations'] / board_size:.2f}x optimal"
-                })
-            
-            st.session_state.cspe_result = result
+                    'Final Attacks': 0 if result['success'] else final_attacks,
+                }
+                if show_backtracks:
+                    detail_json['Backtracks'] = result['backtracks']
+                if 'efficiency_score' in result:
+                    detail_json['Heuristic Efficiency'] = f"{result['efficiency_score']:.2f}x optimal"
+
+                st.json(detail_json)
+                
+            st.session_state.cspe_result = result 
+            st.session_state.cspe_running = False
+        
+        elif 'cspe_result' in st.session_state:
+            st.info("Configuration complete. Press the **Run Enhanced CSP** button to start a new search.")
+
 def show_comparison_page():
     """Comparison page for all algorithms."""
     # Ensure pandas, statistics, and plotly are available for the entire script context
@@ -1558,31 +2136,23 @@ def show_comparison_page():
 # ============================================================================
 # MAIN APP
 # ============================================================================
-
 def main():
-    # Main heading with authors
+    # Main heading with authors - Green Chessboard Badge Style
     st.markdown(
         """
-        <h1 style='text-align: center; color: #1b4d3e; font-family: "Georgia, serif";'>
-        ♛ 8-Queens AI Solver ♛
-        </h1>
-        <h4 style='text-align: center; color: #2e7d32; font-family: "Arial, sans-serif";'>
-        CEP Project by Jibran Saleem, Sajjad Abidi & Arif Mehdi
-        </h4>
+        <div style='text-align: center; padding: 1rem; background-color: #7d945d; border-radius: 15px; color: #eeeed5;'>
+        <h1 style='margin: 0; font-weight: 700;'>♛ 8-Queens AI Solver ♛</h1>
+        <h4 style='margin: 0.3rem 0 0 0; font-weight: 400;'>CEP Project by Jibran Saleem, Sajjad Abidi & Arif Mehdi</h4>
+        </div>
         """, unsafe_allow_html=True
     )
 
-    # Intro section
+    # Intro section - Badge style
     st.markdown(
         """
-        <div style='text-align: center; padding: 1.5rem; background-color: #e8f5e9;
-        border-radius: 12px; margin-bottom: 2rem; box-shadow: 0 4px 8px rgba(0,0,0,0.1);'>
-        <h3 style='color: #1b5e20; margin-bottom: 0.5rem; font-family: "Arial, sans-serif";'>
-        Explore AI Algorithms Solving the Classic 8-Queens Problem
-        </h3>
-        <p style='color: #2e7d32; margin: 0;'>
-        Compare Hill Climbing, CSP Backtracking, and Enhanced CSP with interactive visualization.
-        </p>
+        <div style='text-align: center; padding: 1.5rem; background-color: #7d945d; border-radius: 15px; margin: 1rem 0; color: #eeeed5;'>
+        <h3 style='margin-bottom: 0.5rem;'>Explore AI Algorithms Solving the Classic 8-Queens Problem</h3>
+        <p style='margin: 0;'>Compare Hill Climbing, CSP Backtracking, and Enhanced CSP with interactive visualization.</p>
         </div>
         """, unsafe_allow_html=True
     )
@@ -1598,93 +2168,95 @@ def main():
     st.sidebar.markdown("---")
     st.sidebar.markdown(
         """
-        ### 📚 About 8-Queens
-        Place 8 queens on an 8×8 board so no two queens attack each other.
-
-        **Constraints:**
-        - ❌ No two queens in same row
-        - ❌ No two queens in same column
-        - ❌ No two queens on same diagonal
-
-        **Total Solutions:** 92 unique solutions
-        """
+        <div style='padding: 1rem; background-color: #7d945d; border-radius: 12px; color: #eeeed5;'>
+        <h3 style='margin-top: 0;'>📚 About 8-Queens</h3>
+        <p>Place 8 queens on an 8×8 board so no two queens attack each other.</p>
+        <p><strong>Constraints:</strong></p>
+        <ul style='margin-left: 1rem;'>
+        <li>❌ No two queens in same row</li>
+        <li>❌ No two queens in same column</li>
+        <li>❌ No two queens on same diagonal</li>
+        </ul>
+        <p style='font-weight: bold;'>Total Solutions: 92 unique solutions</p>
+        </div>
+        """, unsafe_allow_html=True
     )
     st.sidebar.markdown("---")
 
     if page != "🏠 Home":
-        st.sidebar.markdown("### 🎯 Quick Tips")
-        st.sidebar.info(
+        st.sidebar.markdown(
             """
-            - Adjust animation speed slider
-            - Use smaller board sizes (4-8) for faster visualization
-            - Watch live metrics while the algorithm runs
-            """
+            <div style='padding: 1rem; background-color: #9bb174; border-radius: 10px; color: #eeeed5;'>
+            <h3 style='margin-top: 0;'>🎯 Quick Tips</h3>
+            <ul>
+            <li>Adjust animation speed slider</li>
+            <li>Use smaller board sizes (4-8) for faster visualization</li>
+            <li>Watch live metrics while the algorithm runs</li>
+            </ul>
+            </div>
+            """, unsafe_allow_html=True
         )
 
     # Home Page
     if page == "🏠 Home":
-        st.markdown("### 🎓 Welcome to the 8-Queens Solver")
         st.markdown(
             """
-            This application demonstrates AI algorithms solving the classic 8-Queens problem 
-            with **smooth animations** and **detailed visualizations**.
-            """
+            <h3 style='color: #7d945d; font-weight: 600;'>🎓 Welcome to the 8-Queens Solver</h3>
+            <p style='color: #3d3d3d;'>This application demonstrates AI algorithms solving the classic 8-Queens problem with <strong style='color: #7d945d;'>smooth animations</strong> and <strong style='color: #7d945d;'>detailed visualizations</strong>.</p>
+            """, unsafe_allow_html=True
         )
         st.markdown("---")
-        st.markdown("### 🚀 Choose an Algorithm to Explore")
+        st.markdown("<h3 style='color: #7d945d; font-weight: 600;'>🚀 Choose an Algorithm to Explore</h3>", unsafe_allow_html=True)
 
         col1, col2, col3 = st.columns(3)
 
-        # Hill Climbing
+        # Hill Climbing Badge
         with col1:
             st.markdown(
                 """
-                <div style='padding: 1.2rem; background-color: #a5d6a7; border-radius: 10px; 
-                border-left: 4px solid #1b5e20; box-shadow: 0 2px 4px rgba(0,0,0,0.1);'>
+                <div style='padding: 1rem; background-color: #7d945d; border-radius: 12px; color: #eeeed5;'>
                 <h4>⛰️ Hill Climbing</h4>
                 <p><strong>Type:</strong> Local Search</p>
                 <p><strong>Strategy:</strong> Greedy optimization with random restarts</p>
                 <p><strong>Pros:</strong> Fast, simple</p>
                 <p><strong>Cons:</strong> May get stuck in local maxima</p>
-                <p><em>Best for quick approximate solutions</em></p>
+                <p style='font-style: italic;'>Best for quick approximate solutions</p>
                 </div>
                 """, unsafe_allow_html=True
             )
 
-        # CSP Backtracking
+        # CSP Backtracking Badge
         with col2:
             st.markdown(
                 """
-                <div style='padding: 1.2rem; background-color: #c8e6c9; border-radius: 10px; 
-                border-left: 4px solid #2e7d32; box-shadow: 0 2px 4px rgba(0,0,0,0.1);'>
+                <div style='padding: 1rem; background-color: #eeeed5; border-radius: 12px; border: 2px solid #7d945d; color: #7d945d;'>
                 <h4>🔙 CSP Backtracking</h4>
                 <p><strong>Type:</strong> Systematic Search</p>
                 <p><strong>Strategy:</strong> Constraint satisfaction with backtracking</p>
                 <p><strong>Pros:</strong> Guaranteed solution</p>
                 <p><strong>Cons:</strong> Can be slower</p>
-                <p><em>Best for complete solutions</em></p>
+                <p style='font-style: italic;'>Best for complete solutions</p>
                 </div>
                 """, unsafe_allow_html=True
             )
 
-        # CSP Enhanced
+        # CSP Enhanced Badge
         with col3:
             st.markdown(
                 """
-                <div style='padding: 1.2rem; background-color: #e0f2f1; border-radius: 10px; 
-                border-left: 4px solid #388e3c; box-shadow: 0 2px 4px rgba(0,0,0,0.1);'>
+                <div style='padding: 1rem; background-color: #7d945d; border-radius: 12px; color: #eeeed5;'>
                 <h4>⚡ CSP Enhanced</h4>
                 <p><strong>Type:</strong> Optimized CSP</p>
                 <p><strong>Strategy:</strong> Forward checking + MRV heuristic</p>
                 <p><strong>Pros:</strong> Fast & guaranteed</p>
                 <p><strong>Cons:</strong> More complex</p>
-                <p><em>Best for optimal systematic search</em></p>
+                <p style='font-style: italic;'>Best for optimal systematic search</p>
                 </div>
                 """, unsafe_allow_html=True
             )
 
         st.markdown("---")
-        st.markdown("### 📊 Algorithm Comparison Matrix")
+        st.markdown("<h3 style='color: #7d945d; font-weight: 600;'>📊 Algorithm Comparison Matrix</h3>", unsafe_allow_html=True)
         comparison_df = pd.DataFrame({
             'Feature': ['Completeness', 'Optimality', 'Time Complexity', 'Space Complexity', 'Predictability'],
             'Hill Climbing': ['❌ No', '❌ No', '🟢 O(k)', '🟢 O(1)', '🟡 Low'],
@@ -1692,8 +2264,14 @@ def main():
             'CSP Enhanced': ['✅ Yes', '✅ Yes', '🟡 O(n²)', '🟡 O(n)', '🟢 High']
         })
         st.dataframe(comparison_df, use_container_width=True, hide_index=True)
-        st.markdown("---")
-        st.info("👈 Select an algorithm from the sidebar to see it in action!")
+
+        st.markdown(
+            """
+            <div style='padding: 1rem; background-color: #7d945d; border-radius: 12px; color: #eeeed5; text-align: center;'>
+            👈 Select an algorithm from the sidebar to see it in action!
+            </div>
+            """, unsafe_allow_html=True
+        )
 
     # Algorithm pages
     elif page == "⛰️ Hill Climbing":
@@ -1705,13 +2283,14 @@ def main():
     elif page == "📊 Comparison":
         show_comparison_page()
 
-    # Footer
+    # Footer Badge
     st.markdown("---")
     st.markdown(
         """
-        <div style='text-align: center; color: #2e7d32; padding: 1rem; background-color: #e8f5e9; border-radius: 8px;'>
-        <p style='margin: 0; font-size: 0.9rem;'><strong>8-Queens AI Solver</strong> | Built with ❤️ using Streamlit & Python</p>
-        <p style='margin: 0.2rem 0 0 0; font-size: 0.8rem;'>Algorithms: Hill Climbing • CSP Backtracking • Enhanced CSP (FC + MRV)</p>
+        <div style='padding: 1rem; background-color: #7d945d; border-radius: 12px; color: #eeeed5; text-align: center;'>
+        <p style='margin: 0; font-weight: 600;'>♛ 8-Queens AI Solver ♛</p>
+        <p style='margin: 0.3rem 0 0 0;'>Built with ❤️ using Streamlit & Python</p>
+        <p style='margin: 0.2rem 0 0 0;'>Algorithms: Hill Climbing • CSP Backtracking • Enhanced CSP (FC + MRV)</p>
         </div>
         """, unsafe_allow_html=True
     )
